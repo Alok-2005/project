@@ -47,8 +47,13 @@ export async function POST(req: Request) {
     await payment.save();
 
     return NextResponse.json({ success: true, orderId: order.id });
-  } catch (error: any) {
-    console.error("Error creating order:", error.message, error.stack);
-    return NextResponse.json({ success: false, message: "Server error", error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Error creating order:", error.message, error.stack);
+      return NextResponse.json({ success: false, message: "Server error", error: error.message }, { status: 500 });
+    } else {
+      console.error("Error creating order:", error);
+      return NextResponse.json({ success: false, message: "Server error", error: String(error) }, { status: 500 });
+    }
   }
 }

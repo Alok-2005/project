@@ -13,7 +13,7 @@ export async function POST(req: Request) {
 
     console.log("Razorpay Callback Body:", JSON.stringify(body, null, 2));
 
-    let payment = await Payment.findOne({ oid: razorpay_order_id });
+    const payment = await Payment.findOne({ oid: razorpay_order_id }); // Changed 'let' to 'const'
     if (!payment) {
       console.error("Order ID not found:", razorpay_order_id);
       return NextResponse.json({ success: false, message: "Order Id not found" }, { status: 404 });
@@ -68,7 +68,6 @@ export async function POST(req: Request) {
 
       console.log("Updated Payment:", JSON.stringify(updatedPayment.toObject(), null, 2));
 
-      // Prepare payment details for Twilio webhook
       const paymentData = {
         name: updatedPayment.name || "Unknown",
         amount: updatedPayment.amount || 0,
@@ -80,10 +79,9 @@ export async function POST(req: Request) {
         orderId: razorpay_order_id,
         paymentStatus: "Success",
         updatedAt: updatedPayment.updatedAt ? new Date(updatedPayment.updatedAt).toLocaleString() : "N/A",
-        recipient: updatedPayment.to_user || "N/A"
+        recipient: updatedPayment.to_user || "N/A",
       };
 
-      // Format message for WhatsApp (simpler format to avoid encoding issues)
       const message = `Payment Successful!
 
 ISKCON Payment Receipt
@@ -99,15 +97,13 @@ Recipient: ${paymentData.recipient}
 
 Thank you for your donation to ISKCON!`;
 
-      // Send POST request to Twilio webhook with better error handling
       try {
         console.log("Sending webhook to:", "https://iskconprojectbackend.onrender.com/api/whatsapp/verify");
         
         const webhookPayload = {
           message: message,
           from: `whatsapp:${updatedPayment.contactNo}`,
-          // Additional structured data
-          paymentData: paymentData
+          paymentData: paymentData,
         };
         
         console.log("Webhook payload:", JSON.stringify(webhookPayload, null, 2));
@@ -116,7 +112,7 @@ Thank you for your donation to ISKCON!`;
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
           },
           body: JSON.stringify(webhookPayload),
         });
@@ -134,7 +130,7 @@ Thank you for your donation to ISKCON!`;
         let webhookData;
         try {
           webhookData = JSON.parse(responseText);
-        } catch (parseError) {
+        } catch {
           console.log("Webhook response is not JSON, treating as success");
           webhookData = { message: "Response received but not JSON" };
         }
@@ -145,21 +141,22 @@ Thank you for your donation to ISKCON!`;
           success: true, 
           message: "Payment verified and receipt sent successfully",
           paymentData: paymentData,
-          webhookResponse: webhookData
+          webhookResponse: webhookData,
         });
 
-      } catch (webhookError: any) {
-        console.error("Error sending webhook to /api/whatsapp/verify:", webhookError.message);
+      } catch (webhookError: unknown) {
+        console.error(
+          "Error sending webhook to /api/whatsapp/verify:",
+          webhookError instanceof Error ? webhookError.message : webhookError
+        );
         
-        // Try alternative webhook formats
         try {
           console.log("Trying alternative webhook format...");
           
-          // Try with just the message and phone number
           const simplePayload = {
             Body: message,
             From: `whatsapp:${updatedPayment.contactNo}`,
-            To: "whatsapp:+14155238886" // Default Twilio sandbox number
+            To: "whatsapp:+14155238886",
           };
           
           console.log("Simple webhook payload:", JSON.stringify(simplePayload, null, 2));
@@ -168,7 +165,7 @@ Thank you for your donation to ISKCON!`;
             method: "POST",
             headers: { 
               "Content-Type": "application/json",
-              "Accept": "application/json"
+              "Accept": "application/json",
             },
             body: JSON.stringify(simplePayload),
           });
@@ -183,20 +180,23 @@ Thank you for your donation to ISKCON!`;
               success: true, 
               message: "Payment verified and receipt sent via fallback method",
               paymentData: paymentData,
-              webhookMethod: "fallback"
+              webhookMethod: "fallback",
             });
           }
-        } catch (fallbackError: any) {
-          console.error("Fallback webhook also failed:", fallbackError.message);
+        } catch (fallbackError: unknown) {
+          if (fallbackError instanceof Error) {
+            console.error("Fallback webhook also failed:", fallbackError.message);
+          } else {
+            console.error("Fallback webhook also failed:", fallbackError);
+          }
         }
         
-        // If all webhook attempts fail, still return success for payment
         return NextResponse.json({ 
           success: true, 
           message: "Payment verified successfully, but receipt delivery failed",
           paymentData: paymentData,
-          webhookError: webhookError.message,
-          note: "Payment was successful, but WhatsApp notification failed. Please check Twilio configuration."
+          webhookError: webhookError instanceof Error ? webhookError.message : String(webhookError),
+          note: "Payment was successful, but WhatsApp notification failed. Please check Twilio configuration.",
         });
       }
 
@@ -204,12 +204,21 @@ Thank you for your donation to ISKCON!`;
       console.error("Payment verification failed for order:", razorpay_order_id);
       return NextResponse.json({ success: false, message: "Payment Verification Failed" }, { status: 400 });
     }
-  } catch (error: any) {
-    console.error("Error in payment verification:", error.message, error.stack);
-    return NextResponse.json({ 
-      success: false, 
-      message: "Server error", 
-      error: error.message 
-    }, { status: 500 });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Error in payment verification:", error.message, error.stack);
+      return NextResponse.json({ 
+        success: false, 
+        message: "Server error", 
+        error: error.message,
+      }, { status: 500 });
+    } else {
+      console.error("Unknown error in payment verification:", error);
+      return NextResponse.json({ 
+        success: false, 
+        message: "Server error", 
+        error: "Unknown error",
+      }, { status: 500 });
+    }
   }
 }

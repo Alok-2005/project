@@ -3,7 +3,7 @@ import connectDb from "@/app/db/connectDb";
 import Payment from "@/app/models/Payment";
 import Twilio from "twilio";
 import PDFDocument from "pdfkit";
-import { promises as fs } from "fs";
+import { promises as fs, createWriteStream } from "fs"; // Updated import
 import path from "path";
 
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -72,13 +72,13 @@ export async function POST(req: Request) {
     const fileName = `receipt-${transactionId}.pdf`;
     const filePath = path.join(receiptsDir, fileName);
 
-    const writeStream = require("fs").createWriteStream(filePath);
+    const writeStream = createWriteStream(filePath); // Replaced require with ES import
     doc.pipe(writeStream);
 
     try {
       doc.font("Times-Roman");
-    } catch (fontError: any) {
-      console.error("Font loading error:", fontError.message);
+    } catch (fontError: unknown) {
+      console.error("Font loading error:", fontError instanceof Error ? fontError.message : fontError);
       await twilioClient.messages.create({
         from: process.env.TWILIO_WHATSAPP_NUMBER || "whatsapp:+14155238886",
         to: from,
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
     doc.end();
 
     await new Promise((resolve, reject) => {
-      writeStream.on("finish", resolve);
+      writeStream.on("finish", () => resolve(undefined));
       writeStream.on("error", reject);
     });
 
@@ -124,21 +124,26 @@ export async function POST(req: Request) {
     console.log("Twilio Message SID:", twilioResponse.sid);
 
     return NextResponse.json({ success: true, message: "Receipt sent", pdfUrl });
-  } catch (error: any) {
-    console.error("Error in WhatsApp webhook:", error.message, error.stack);
-    try {
-      await twilioClient.messages.create({
-        from: process.env.TWILIO_WHATSAPP_NUMBER || "whatsapp:+14155238886",
-        to: from || "whatsapp:+979975175098",
-        body: "An error occurred. Please try again later.",
-      });
-    } catch (sendError) {
-      if (sendError && typeof sendError === "object" && "message" in sendError) {
-        console.error("Error sending error message:", (sendError as any).message);
-      } else {
-        console.error("Error sending error message:", sendError);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Error in WhatsApp webhook:", error.message, error.stack);
+      try {
+        await twilioClient.messages.create({
+          from: process.env.TWILIO_WHATSAPP_NUMBER || "whatsapp:+14155238886",
+          to: from || "whatsapp:+979975175098",
+          body: "An error occurred. Please try again later.",
+        });
+      } catch (sendError: unknown) {
+        if (sendError instanceof Error) {
+          console.error("Error sending error message:", sendError.message);
+        } else {
+          console.error("Unknown error sending error message:", sendError);
+        }
       }
+      return NextResponse.json({ success: false, message: "Server error", error: error.message }, { status: 500 });
+    } else {
+      console.error("Unknown error in WhatsApp webhook:", error);
+      return NextResponse.json({ success: false, message: "Server error", error: String(error) }, { status: 500 });
     }
-    return NextResponse.json({ success: false, message: "Server error", error: error.message }, { status: 500 });
   }
 }

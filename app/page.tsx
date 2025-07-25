@@ -1,7 +1,21 @@
-"use client"
+"use client";
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import { v4 as uuidv4 } from "uuid";
+
+// Define an interface for Razorpay's response (based on their SDK docs)
+interface RazorpayResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+// Extend the global Window interface to declare Razorpay (avoids 'as any' cast)
+declare global {
+  interface Window {
+    Razorpay: any; // Use 'any' here only for the declaration; we'll type the usage below
+  }
+}
 
 interface FormData {
   name: string;
@@ -82,7 +96,7 @@ export default function Home() {
         name: "ISKCON Payment Portal",
         description: `Payment by ${formData.name}`,
         order_id: data.orderId,
-        handler: function (response: any) {
+        handler: function (response: RazorpayResponse) { // Replaced 'any' with RazorpayResponse
           fetch("/api/verify-payment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -102,7 +116,7 @@ export default function Home() {
               }
             })
             .catch((err) => {
-              setError("Error verifying payment: " + err.message);
+              setError("Error verifying payment: " + (err as Error).message); // Cast to Error for safety
             });
         },
         prefill: {
@@ -112,10 +126,11 @@ export default function Home() {
         theme: { color: "#3399cc" },
       };
 
-      const razorpay = new (window as any).Razorpay(options);
+      // No 'as any' needed due to global declaration; TypeScript now knows about window.Razorpay
+      const razorpay = new window.Razorpay(options);
       razorpay.open();
-    } catch (err: any) {
-      setError("Error initiating payment: " + err.message);
+    } catch (err: unknown) { // Replaced 'any' with 'unknown' (safer; check if it's an Error)
+      setError("Error initiating payment: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsLoading(false);
     }
