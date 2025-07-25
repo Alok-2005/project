@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import { v4 as uuidv4 } from "uuid";
+import { UserIcon, PhoneIcon, CurrencyRupeeIcon } from "@heroicons/react/24/outline"; // Icons for enhancement
 
 // Define an interface for Razorpay's response (based on their SDK docs)
 interface RazorpayResponse {
@@ -137,62 +138,68 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-orange-100 flex items-center justify-center p-4">
       <Head>
         <title>ISKCON Payment Portal</title>
       </Head>
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">ISKCON Payment Form</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+      <div className="bg-white p-6 sm:p-8 rounded-xl shadow-xl w-full max-w-md transform transition-all duration-300 hover:shadow-2xl">
+        <h1 className="text-3xl font-bold mb-6 text-center text-black">ISKCON Payment Form</h1>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="relative">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
               Name
             </label>
+            <UserIcon className="absolute left-3 top-10 h-5 w-5 text-gray-400" />
             <input
               type="text"
               id="name"
               name="name"
               value={formData.name}
               onChange={handleInputChange}
-              className="mt-1 p-2 w-full border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="pl-10 mt-1 p-3 w-full border text-black border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 placeholder:text-gray-400"
               required
+              placeholder="Enter your name"
             />
           </div>
-          <div>
-            <label htmlFor="contactNo" className="block text-sm font-medium text-gray-700">
+          <div className="relative">
+            <label htmlFor="contactNo" className="block text-sm font-medium text-gray-700 mb-1">
               Contact Number (e.g., +91xxxxxxxxxx)
             </label>
+            <PhoneIcon className="absolute left-3  top-10 h-5 w-5 text-gray-400" />
             <input
               type="tel"
               id="contactNo"
               name="contactNo"
               value={formData.contactNo}
               onChange={handleInputChange}
-              className="mt-1 p-2 w-full border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="pl-10 mt-1 p-3 w-full border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 text-black"
               required
+              placeholder="Enter your contact number"
             />
           </div>
-          <div>
-            <label htmlFor="amount" className="block text-sm font-medium text-gray-700">
+          <div className="relative">
+            <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">
               Amount (₹)
             </label>
+            <CurrencyRupeeIcon className="absolute left-3 top-10 h-5 w-5 text-gray-400" />
             <input
               type="number"
               id="amount"
               name="amount"
               value={formData.amount}
               onChange={handleInputChange}
-              className="mt-1 p-2 w-full border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="pl-10 mt-1 p-3 w-full border text-black border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 placeholder:text-gray-400"
               required
               min="1"
               step="0.01"
+              placeholder="Enter amount"
             />
           </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          {error && <p className="text-red-500 text-sm text-center animate-pulse">{error}</p>}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600 disabled:bg-blue-300"
+            className="w-full bg-orange-400 text-white p-3 rounded-lg hover:bg-orange-600 transition duration-300 font-semibold"
           >
             {isLoading ? "Processing..." : "Proceed to Payment"}
           </button>
