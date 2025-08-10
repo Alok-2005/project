@@ -67,91 +67,78 @@ export async function POST(req: Request) {
       console.log("Updated Payment:", JSON.stringify(updatedPayment.toObject(), null, 2));
 
       try {
-        // Get the base URL for your Next.js app
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        console.log("Sending WhatsApp receipt directly...");
         
-        // This is the Twilio callback URL - similar to your Express.js /api/whatsapp/verify
-        const twilioCallbackUrl = `${baseUrl}/api/twilio/send-receipt`;
-        
-        console.log("Making POST request to Twilio callback URL:", twilioCallbackUrl);
-        
-        // Create payload similar to your Express.js server structure
-        const callbackPayload = {
-          From: `whatsapp:${updatedPayment.contactNo}`,
-          Body: `Transaction ID: ${updatedPayment.transactionId}`,
-          // Additional data for the callback route
-          paymentData: {
-            name: updatedPayment.name,
-            amount: updatedPayment.amount,
-            contactNo: updatedPayment.contactNo,
-            upiId: updatedPayment.upiId,
-            transactionId: updatedPayment.transactionId,
-            razorpayPaymentId: updatedPayment.razorpayPaymentId,
-            to_user: updatedPayment.to_user,
-            updatedAt: updatedPayment.updatedAt
-          }
-        };
-        
-        console.log("Callback payload:", JSON.stringify(callbackPayload, null, 2));
+        // Send WhatsApp receipt directly using Twilio
+        if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+          throw new Error("Twilio credentials not configured");
+        }
 
-        // Make POST request to the Twilio callback route (mimicking Twilio webhook)
-        const callbackResponse = await fetch(twilioCallbackUrl, {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-          },
-          body: JSON.stringify(callbackPayload),
+        const Twilio = require('twilio');
+        const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+        // Format contact number for WhatsApp
+        let whatsappNumber = updatedPayment.contactNo;
+        if (!whatsappNumber.startsWith('whatsapp:')) {
+          // Remove any + prefix and add whatsapp: prefix
+          whatsappNumber = whatsappNumber.replace(/^\+/, '');
+          whatsappNumber = `whatsapp:+${whatsappNumber}`;
+        }
+
+        console.log("Sending to WhatsApp number:", whatsappNumber);
+
+        // Create receipt message
+        const receiptMessage = `🙏 *ISKCON Payment Receipt* 🙏
+
+✅ *Payment Successful!*
+
+👤 *Name:* ${updatedPayment.name}
+💰 *Amount:* ₹${updatedPayment.amount}
+🆔 *Transaction ID:* ${updatedPayment.transactionId}
+💳 *Payment ID:* ${updatedPayment.razorpayPaymentId}
+📱 *Payment Method:* ${paymentDetails.method}
+${updatedPayment.upiId ? `🏦 *UPI ID:* ${updatedPayment.upiId}` : ''}
+📅 *Date:* ${new Date().toLocaleString('en-IN')}
+
+Thank you for your donation to ISKCON! 🕉️
+
+May Lord Krishna bless you! 🙏`;
+
+        // Send WhatsApp message
+        const message = await twilioClient.messages.create({
+          from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+          to: whatsappNumber,
+          body: receiptMessage,
         });
 
-        console.log("Twilio callback response status:", callbackResponse.status);
-        const responseText = await callbackResponse.text();
-        console.log("Twilio callback response:", responseText);
+        console.log("WhatsApp message sent successfully! SID:", message.sid);
 
-        let callbackData;
-        try {
-          callbackData = JSON.parse(responseText);
-        } catch {
-          console.log("Callback response is not JSON");
-          callbackData = { message: "Response received but not JSON" };
-        }
+        return NextResponse.json({ 
+          success: true, 
+          message: "Payment verified and receipt sent to WhatsApp successfully!",
+          paymentData: {
+            name: updatedPayment.name || "Unknown",
+            amount: updatedPayment.amount || 0,
+            contactNo: updatedPayment.contactNo,
+            transactionId: updatedPayment.transactionId || "Not available",
+            razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
+            upiId: updatedPayment.upiId || "Not available",
+            paymentMethod: paymentDetails.method || "N/A",
+            orderId: razorpay_order_id,
+            paymentStatus: "Success",
+            updatedAt: updatedPayment.updatedAt ? new Date(updatedPayment.updatedAt).toLocaleString() : "N/A",
+            recipient: updatedPayment.to_user || "N/A",
+          },
+          whatsappMessageSid: message.sid,
+        });
 
-        if (callbackResponse.ok) {
-          console.log("Receipt sent successfully via callback:", JSON.stringify(callbackData, null, 2));
-          
-          return NextResponse.json({ 
-            success: true, 
-            message: "Payment verified and receipt sent successfully!",
-            paymentData: {
-              name: updatedPayment.name || "Unknown",
-              amount: updatedPayment.amount || 0,
-              contactNo: updatedPayment.contactNo,
-              transactionId: updatedPayment.transactionId || "Not available",
-              razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
-              upiId: updatedPayment.upiId || "Not available",
-              paymentMethod: paymentDetails.method || "N/A",
-              orderId: razorpay_order_id,
-              paymentStatus: "Success",
-              updatedAt: updatedPayment.updatedAt ? new Date(updatedPayment.updatedAt).toLocaleString() : "N/A",
-              recipient: updatedPayment.to_user || "N/A",
-            },
-            receiptResponse: callbackData,
-          });
-        } else {
-          throw new Error(`Twilio callback failed with status: ${callbackResponse.status}. Response: ${responseText}`);
-        }
-
-      } catch (callbackError: unknown) {
-        console.error(
-          "Error calling Twilio callback:",
-          callbackError instanceof Error ? callbackError.message : callbackError
-        );
+      } catch (whatsappError: unknown) {
+        console.error("Error sending WhatsApp message:", whatsappError);
         
         // Payment is still successful, just receipt failed
         return NextResponse.json({ 
-          success: true, 
-          message: "Payment verified successfully, but receipt delivery failed",
+          success: true,
+          message: "Payment verified successfully, but WhatsApp receipt failed to send",
           paymentData: {
             name: updatedPayment.name || "Unknown",
             amount: updatedPayment.amount || 0,
@@ -160,8 +147,8 @@ export async function POST(req: Request) {
             razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
             paymentStatus: "Success",
           },
-          receiptError: callbackError instanceof Error ? callbackError.message : String(callbackError),
-          note: "Payment was successful, but WhatsApp receipt failed. Please check configuration.",
+          whatsappError: whatsappError instanceof Error ? whatsappError.message : String(whatsappError),
+          note: "Payment was successful, but WhatsApp receipt failed. Please check Twilio configuration.",
         });
       }
 
