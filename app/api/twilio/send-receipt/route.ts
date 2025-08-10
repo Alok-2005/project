@@ -19,6 +19,13 @@ interface PaymentData {
   contactNo?: string;
 }
 
+// Define Twilio request body interface
+interface TwilioRequestBody {
+  From?: string;
+  Body?: string;
+  paymentData?: PaymentData;
+}
+
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 export async function POST(req: Request) {
@@ -29,7 +36,7 @@ export async function POST(req: Request) {
     console.error('⏰ Request timed out after 12 seconds');
   }, 12000);
 
-  let body: any;
+  let body: TwilioRequestBody;
   
   try {
     await connectDb();
@@ -71,6 +78,18 @@ export async function POST(req: Request) {
       console.log('💳 Using payment data from verify-payment route');
     } else {
       // Otherwise, extract from message (for manual requests)
+      if (!message) {
+        clearTimeout(timeoutId);
+        console.error('❌ Missing Body field in request');
+        twilioClient.messages.create({
+          from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+          to: from,
+          body: 'Invalid message format. Please include the Transaction ID.',
+        }).catch(err => console.error('Error sending invalid format message:', err));
+        
+        return NextResponse.json({ success: false, message: 'Missing message body' }, { status: 400 });
+      }
+
       const transactionIdMatch = message.match(/Transaction ID:\s*([^\n\r]+)/i);
       if (!transactionIdMatch) {
         clearTimeout(timeoutId);
