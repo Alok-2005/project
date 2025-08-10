@@ -9,7 +9,7 @@ interface RouteParams {
   };
 }
 
-export async function GET(
+ async function GET(
   request: NextRequest,
   // Use type assertion to ensure compatibility with Next.js internal types
   context: RouteParams & { params: unknown }
