@@ -6,7 +6,7 @@ import PDFDocument from "pdfkit";
 import { promises as fs } from "fs";
 import path from "path";
 
-// Define payment interface to replace 'any'
+// Define payment interface
 interface PaymentData {
   name?: string;
   amount?: number;
@@ -22,42 +22,59 @@ interface PaymentData {
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 export async function POST(req: Request) {
-  // Set response timeout to 12 seconds (within Twilio's 15-second limit)
+  console.log('🚀 Starting Twilio callback processing...');
+  
+  // Set response timeout to 12 seconds
   const timeoutId = setTimeout(() => {
-    console.error('Request timed out after 12 seconds');
+    console.error('⏰ Request timed out after 12 seconds');
   }, 12000);
 
-  await connectDb();
-
+  let body: any;
+  
   try {
-    const startTime = Date.now();
-    const body = await req.json();
-    console.log('Twilio Callback Body:', JSON.stringify(body, null, 2));
+    await connectDb();
+    console.log('✅ Database connected');
 
+    // Parse request body
+    try {
+      body = await req.json();
+      console.log('📨 Twilio Callback Body:', JSON.stringify(body, null, 2));
+    } catch (parseError) {
+      clearTimeout(timeoutId);
+      console.error('❌ Error parsing request body:', parseError);
+      return NextResponse.json(
+        { success: false, message: 'Invalid request body', error: parseError instanceof Error ? parseError.message : String(parseError) },
+        { status: 400 }
+      );
+    }
+
+    const startTime = Date.now();
     const from = body.From;
     const message = body.Body;
     const paymentData = body.paymentData;
 
     if (!from) {
       clearTimeout(timeoutId);
-      console.error('Missing From field in request');
+      console.error('❌ Missing From field in request');
       return NextResponse.json({ success: false, message: 'Missing From field' }, { status: 400 });
     }
 
+    console.log('📞 Processing request from:', from);
+
     let transactionId: string;
-    let payment: PaymentData; // Replaced 'any' with 'PaymentData'
+    let payment: PaymentData;
 
     // If we have paymentData from verify-payment, use it directly
     if (paymentData && paymentData.transactionId) {
       transactionId = paymentData.transactionId;
       payment = paymentData;
-      console.log('Using payment data from verify-payment route');
+      console.log('💳 Using payment data from verify-payment route');
     } else {
       // Otherwise, extract from message (for manual requests)
       const transactionIdMatch = message.match(/Transaction ID:\s*([^\n\r]+)/i);
       if (!transactionIdMatch) {
         clearTimeout(timeoutId);
-        console.error('No Transaction ID found in message:', message);
+        console.error('❌ No Transaction ID found in message:', message);
         
         // Fire and forget error message
         twilioClient.messages.create({
@@ -70,7 +87,7 @@ export async function POST(req: Request) {
       }
 
       transactionId = transactionIdMatch[1].trim();
-      console.log('Extracted Transaction ID:', transactionId);
+      console.log('🔍 Extracted Transaction ID:', transactionId);
 
       // Find payment in database
       const dbPayment = await Payment.findOne(
@@ -80,7 +97,7 @@ export async function POST(req: Request) {
 
       if (!dbPayment) {
         clearTimeout(timeoutId);
-        console.error('Payment not found or not completed:', transactionId);
+        console.error('❌ Payment not found or not completed:', transactionId);
         
         // Fire and forget error message
         twilioClient.messages.create({
@@ -95,71 +112,117 @@ export async function POST(req: Request) {
       payment = dbPayment;
     }
 
-    console.log('Payment Found:', `Time: ${Date.now() - startTime}ms`);
+    console.log('✅ Payment Found:', `Time: ${Date.now() - startTime}ms`);
 
-    // Generate PDF in memory (much faster than file operations)
-    const pdfBuffer = await generatePDFBuffer(payment);
-    console.log('PDF Generated in memory:', `Time: ${Date.now() - startTime}ms`);
+    // Generate PDF in memory
+    console.log('📄 Starting PDF generation for transaction:', transactionId);
+    let pdfBuffer: Buffer;
+    
+    try {
+      pdfBuffer = await generatePDFBuffer(payment);
+      console.log('✅ PDF Generated in memory:', `Time: ${Date.now() - startTime}ms`);
+    } catch (pdfError) {
+      console.error('❌ Failed to generate PDF:', pdfError);
+      clearTimeout(timeoutId);
+      
+      // Send error message to user
+      twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+        to: from,
+        body: 'Sorry, there was an error generating your receipt. Please try again later.',
+      }).catch(err => console.error('Error sending PDF error message:', err));
+      
+      return NextResponse.json({ 
+        success: false, 
+        message: 'PDF generation failed', 
+        error: pdfError instanceof Error ? pdfError.message : String(pdfError)
+      }, { status: 500 });
+    }
 
-    // Create receipts directory
-    const receiptsDir = path.join(process.cwd(), "public", "receipts");
-    await fs.mkdir(receiptsDir, { recursive: true });
+    // Create receipts directory in /tmp for Vercel compatibility
+    const receiptsDir = path.join('/tmp', 'receipts');
+    console.log('📁 Creating receipts directory:', receiptsDir);
+    
+    try {
+      await fs.mkdir(receiptsDir, { recursive: true });
+      console.log('✅ Receipts directory created');
+    } catch (dirError) {
+      console.error('❌ Error creating receipts directory:', dirError);
+      clearTimeout(timeoutId);
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Failed to create receipts directory',
+        error: dirError instanceof Error ? dirError.message : String(dirError)
+      }, { status: 500 });
+    }
 
-    // Save file asynchronously (don't wait for it)
+    // Save file and get URL
     const fileName = `receipt-${transactionId}-${Date.now()}.pdf`;
     const filePath = path.join(receiptsDir, fileName);
+    console.log('💾 Saving PDF to:', filePath);
     
-    // Fire and forget file save
-    fs.writeFile(filePath, pdfBuffer).catch(err => 
-      console.error('Error saving PDF file:', err)
-    );
+    try {
+      await fs.writeFile(filePath, pdfBuffer);
+      console.log('✅ PDF file saved successfully');
+    } catch (saveError) {
+      console.error('❌ Error saving PDF file:', saveError);
+      // Continue anyway, we have the buffer
+    }
 
     // Create PDF URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
     const pdfUrl = `${baseUrl}/api/receipts/${fileName}`;
-    console.log('PDF URL:', pdfUrl, `Time: ${Date.now() - startTime}ms`);
+    console.log('🔗 PDF URL:', pdfUrl, `Time: ${Date.now() - startTime}ms`);
 
-    // Send message with media - don't wait for response
-    const messagePromise = twilioClient.messages.create({
-      from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
-      to: from,
-      body: `🙏 Thank you ${payment.name || 'Customer'}!\n\nYour payment of ₹${payment.amount || 0} to ISKCON has been received successfully.\n\nHere is your payment receipt.`,
-      mediaUrl: [pdfUrl],
-    });
-
-    // Respond immediately without waiting for Twilio message to send
-    clearTimeout(timeoutId);
-    const totalTime = Date.now() - startTime;
-    console.log(`Total processing time: ${totalTime}ms`);
+    // Send message with media
+    console.log('📱 Sending WhatsApp message to:', from);
     
-    const response = NextResponse.json({ 
-      success: true, 
-      message: 'Receipt sent', 
-      pdfUrl,
-      processingTime: totalTime 
-    });
+    try {
+      const twilioResponse = await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+        to: from,
+        body: `🙏 Thank you ${payment.name || 'Customer'}!\n\nYour payment of ₹${payment.amount || 0} to ISKCON has been received successfully.\n\nHere is your payment receipt.`,
+        mediaUrl: [pdfUrl],
+      });
 
-    // Handle message sending result asynchronously
-    messagePromise
-      .then((twilioResponse) => {
-        console.log('PDF Sent to:', from, 'Message SID:', twilioResponse.sid);
-      })
-      .catch(err => console.error('Error sending WhatsApp message:', err));
+      console.log('✅ WhatsApp message sent successfully! Message SID:', twilioResponse.sid);
+      
+      clearTimeout(timeoutId);
+      const totalTime = Date.now() - startTime;
+      console.log(`⏱️ Total processing time: ${totalTime}ms`);
+      
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Receipt sent successfully', 
+        pdfUrl,
+        messageSid: twilioResponse.sid,
+        processingTime: totalTime 
+      });
 
-    return response;
+    } catch (twilioError) {
+      console.error('❌ Error sending WhatsApp message:', twilioError);
+      clearTimeout(timeoutId);
+      
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Failed to send WhatsApp message',
+        error: twilioError instanceof Error ? twilioError.message : String(twilioError),
+        pdfUrl // Still provide PDF URL for debugging
+      }, { status: 500 });
+    }
 
   } catch (error: unknown) {
     clearTimeout(timeoutId);
-    console.error('Error in Twilio callback:', error);
+    console.error('❌ Error in Twilio callback:', error);
     
-    // Fire and forget error message
-    const body = await req.json();
-    if (body.From) {
+    // Fire and forget error message using already-parsed body
+    if (body?.From) {
+      console.log('📱 Sending error message to:', body.From);
       twilioClient.messages.create({
         from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
         to: body.From,
-        body: 'An error occurred. Please try again later.',
+        body: 'An error occurred while generating your receipt. Please try again later or contact support.',
       }).catch(sendError => console.error('Error sending error message:', sendError));
     }
     
@@ -171,26 +234,42 @@ export async function POST(req: Request) {
   }
 }
 
-// Optimized PDF generation function (same as your Express.js server)
-const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => { // Replaced 'any' with 'PaymentData'
+// Fixed PDF generation function
+const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: 'A4',
-      bufferPages: true,
-      autoFirstPage: true
-    });
-    
-    const buffers: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => buffers.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(buffers)));
-    doc.on('error', reject);
-
     try {
-      // Simplified PDF content for faster generation (same as your Express.js)
+      console.log('📄 Initializing PDFDocument');
+      const doc = new PDFDocument({
+        size: 'A4',
+        bufferPages: true,
+        autoFirstPage: true
+      });
+      
+      // Explicitly set font with fallback
+      try {
+        console.log('🔤 Setting font to Helvetica');
+        doc.font('Helvetica');
+      } catch (fontError) {
+        console.error('❌ Font loading error, falling back to Times-Roman:', fontError);
+        doc.font('Times-Roman');
+      }
+
+      const buffers: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => buffers.push(chunk));
+      doc.on('end', () => {
+        console.log('✅ PDF document generation completed');
+        resolve(Buffer.concat(buffers));
+      });
+      doc.on('error', (err) => {
+        console.error('❌ PDF document error:', err);
+        reject(err);
+      });
+
+      console.log('📝 Generating PDF content');
       doc.fontSize(18).text('ISKCON Payment Receipt', { align: 'center' });
       doc.moveDown(0.5);
       
-      // Use simpler text formatting to reduce processing time
+      // FIXED: Remove the syntax error "vr" and use proper array syntax
       const receiptData = [
         `Name: ${payment.name || 'Unknown'}`,
         `Amount: ₹${payment.amount || 0}`,
@@ -211,9 +290,10 @@ const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => { // Replac
       doc.moveDown(1);
       doc.fontSize(12).text('🙏 Thank you for your donation to ISKCON! 🙏', { align: 'center' });
 
+      console.log('🏁 Finalizing PDF document');
       doc.end();
     } catch (pdfError: unknown) {
-      console.error('PDF generation error:', pdfError);
+      console.error('❌ PDF generation error:', pdfError);
       reject(pdfError);
     }
   });
