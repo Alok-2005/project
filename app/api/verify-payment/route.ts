@@ -13,13 +13,11 @@ export async function POST(req: Request) {
 
     console.log("Razorpay Callback Body:", JSON.stringify(body, null, 2));
 
-    const payment = await Payment.findOne({ oid: razorpay_order_id }); // Changed 'let' to 'const'
+    const payment = await Payment.findOne({ oid: razorpay_order_id });
     if (!payment) {
       console.error("Order ID not found:", razorpay_order_id);
       return NextResponse.json({ success: false, message: "Order Id not found" }, { status: 404 });
     }
-
-    console.log("RAZORPAY_KEY_SECRET:", process.env.RAZORPAY_KEY_SECRET ? "****" : "undefined");
 
     if (!process.env.RAZORPAY_KEY_SECRET) {
       console.error("Razorpay secret missing");
@@ -68,135 +66,102 @@ export async function POST(req: Request) {
 
       console.log("Updated Payment:", JSON.stringify(updatedPayment.toObject(), null, 2));
 
-      const paymentData = {
-        name: updatedPayment.name || "Unknown",
-        amount: updatedPayment.amount || 0,
-        contactNo: updatedPayment.contactNo,
-        transactionId: updatedPayment.transactionId || "Not available",
-        razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
-        upiId: updatedPayment.upiId || "Not available",
-        paymentMethod: paymentDetails.method || "N/A",
-        orderId: razorpay_order_id,
-        paymentStatus: "Success",
-        updatedAt: updatedPayment.updatedAt ? new Date(updatedPayment.updatedAt).toLocaleString() : "N/A",
-        recipient: updatedPayment.to_user || "N/A",
-      };
-
-      const message = `Payment Successful!
-
-ISKCON Payment Receipt
-Name: ${paymentData.name}
-Amount: Rs.${paymentData.amount}
-Contact: ${paymentData.contactNo}
-Transaction ID: ${paymentData.transactionId}
-Payment Method: ${paymentData.paymentMethod}
-UPI ID: ${paymentData.upiId}
-Razorpay Payment ID: ${paymentData.razorpayPaymentId}
-Date: ${paymentData.updatedAt}
-Recipient: ${paymentData.recipient}
-
-Thank you for your donation to ISKCON!`;
-
       try {
-        console.log("Sending webhook to:", "https://backend-m133.onrender.com/api/whatsapp/verify");
+        // Get the base URL for your Next.js app
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
         
-        const webhookPayload = {
-          message: message,
-          from: `whatsapp:${updatedPayment.contactNo}`,
-          paymentData: paymentData,
+        // This is the Twilio callback URL - similar to your Express.js /api/whatsapp/verify
+        const twilioCallbackUrl = `${baseUrl}/api/twilio/send-receipt`;
+        
+        console.log("Making POST request to Twilio callback URL:", twilioCallbackUrl);
+        
+        // Create payload similar to your Express.js server structure
+        const callbackPayload = {
+          From: `whatsapp:${updatedPayment.contactNo}`,
+          Body: `Transaction ID: ${updatedPayment.transactionId}`,
+          // Additional data for the callback route
+          paymentData: {
+            name: updatedPayment.name,
+            amount: updatedPayment.amount,
+            contactNo: updatedPayment.contactNo,
+            upiId: updatedPayment.upiId,
+            transactionId: updatedPayment.transactionId,
+            razorpayPaymentId: updatedPayment.razorpayPaymentId,
+            to_user: updatedPayment.to_user,
+            updatedAt: updatedPayment.updatedAt
+          }
         };
         
-        console.log("Webhook payload:", JSON.stringify(webhookPayload, null, 2));
+        console.log("Callback payload:", JSON.stringify(callbackPayload, null, 2));
 
-        const webhookResponse = await fetch("https://backend-m133.onrender.com/api/whatsapp/verify", {
+        // Make POST request to the Twilio callback route (mimicking Twilio webhook)
+        const callbackResponse = await fetch(twilioCallbackUrl, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
             "Accept": "application/json",
           },
-          body: JSON.stringify(webhookPayload),
+          body: JSON.stringify(callbackPayload),
         });
 
-        console.log("Webhook response status:", webhookResponse.status);
-        console.log("Webhook response headers:", Object.fromEntries(webhookResponse.headers.entries()));
+        console.log("Twilio callback response status:", callbackResponse.status);
+        const responseText = await callbackResponse.text();
+        console.log("Twilio callback response:", responseText);
 
-        const responseText = await webhookResponse.text();
-        console.log("Webhook response body:", responseText);
-
-        if (!webhookResponse.ok) {
-          throw new Error(`Webhook failed with status: ${webhookResponse.status}. Response: ${responseText}`);
-        }
-
-        let webhookData;
+        let callbackData;
         try {
-          webhookData = JSON.parse(responseText);
+          callbackData = JSON.parse(responseText);
         } catch {
-          console.log("Webhook response is not JSON, treating as success");
-          webhookData = { message: "Response received but not JSON" };
+          console.log("Callback response is not JSON");
+          callbackData = { message: "Response received but not JSON" };
         }
 
-        console.log("Webhook Success:", JSON.stringify(webhookData, null, 2));
-        
-        return NextResponse.json({ 
-          success: true, 
-          message: "Payment verified and receipt sent successfully",
-          paymentData: paymentData,
-          webhookResponse: webhookData,
-        });
+        if (callbackResponse.ok) {
+          console.log("Receipt sent successfully via callback:", JSON.stringify(callbackData, null, 2));
+          
+          return NextResponse.json({ 
+            success: true, 
+            message: "Payment verified and receipt sent successfully!",
+            paymentData: {
+              name: updatedPayment.name || "Unknown",
+              amount: updatedPayment.amount || 0,
+              contactNo: updatedPayment.contactNo,
+              transactionId: updatedPayment.transactionId || "Not available",
+              razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
+              upiId: updatedPayment.upiId || "Not available",
+              paymentMethod: paymentDetails.method || "N/A",
+              orderId: razorpay_order_id,
+              paymentStatus: "Success",
+              updatedAt: updatedPayment.updatedAt ? new Date(updatedPayment.updatedAt).toLocaleString() : "N/A",
+              recipient: updatedPayment.to_user || "N/A",
+            },
+            receiptResponse: callbackData,
+          });
+        } else {
+          throw new Error(`Twilio callback failed with status: ${callbackResponse.status}. Response: ${responseText}`);
+        }
 
-      } catch (webhookError: unknown) {
+      } catch (callbackError: unknown) {
         console.error(
-          "Error sending webhook to /api/whatsapp/verify:",
-          webhookError instanceof Error ? webhookError.message : webhookError
+          "Error calling Twilio callback:",
+          callbackError instanceof Error ? callbackError.message : callbackError
         );
         
-        try {
-          console.log("Trying alternative webhook format...");
-          
-          const simplePayload = {
-            Body: message,
-            From: `whatsapp:${updatedPayment.contactNo}`,
-            To: "whatsapp:+14155238886",
-          };
-          
-          console.log("Simple webhook payload:", JSON.stringify(simplePayload, null, 2));
-          
-          const fallbackResponse = await fetch("https://backend-m133.onrender.com/api/whatsapp/verify", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Accept": "application/json",
-            },
-            body: JSON.stringify(simplePayload),
-          });
-          
-          console.log("Fallback webhook response status:", fallbackResponse.status);
-          const fallbackText = await fallbackResponse.text();
-          console.log("Fallback webhook response:", fallbackText);
-          
-          if (fallbackResponse.ok) {
-            console.log("Fallback webhook succeeded");
-            return NextResponse.json({ 
-              success: true, 
-              message: "Payment verified and receipt sent via fallback method",
-              paymentData: paymentData,
-              webhookMethod: "fallback",
-            });
-          }
-        } catch (fallbackError: unknown) {
-          if (fallbackError instanceof Error) {
-            console.error("Fallback webhook also failed:", fallbackError.message);
-          } else {
-            console.error("Fallback webhook also failed:", fallbackError);
-          }
-        }
-        
+        // Payment is still successful, just receipt failed
         return NextResponse.json({ 
           success: true, 
           message: "Payment verified successfully, but receipt delivery failed",
-          paymentData: paymentData,
-          webhookError: webhookError instanceof Error ? webhookError.message : String(webhookError),
-          note: "Payment was successful, but WhatsApp notification failed. Please check Twilio configuration.",
+          paymentData: {
+            name: updatedPayment.name || "Unknown",
+            amount: updatedPayment.amount || 0,
+            contactNo: updatedPayment.contactNo,
+            transactionId: updatedPayment.transactionId || "Not available",
+            razorpayPaymentId: updatedPayment.razorpayPaymentId || "Not available",
+            paymentStatus: "Success",
+          },
+          receiptError: callbackError instanceof Error ? callbackError.message : String(callbackError),
+          note: "Payment was successful, but WhatsApp receipt failed. Please check configuration.",
         });
       }
 
