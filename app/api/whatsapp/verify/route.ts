@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import connectDb from "@/app/db/connectDb";
-import Payment from "@/app/models/Payment";
 import Twilio from "twilio";
 
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);

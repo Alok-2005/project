@@ -6,6 +6,19 @@ import PDFDocument from "pdfkit";
 import { promises as fs } from "fs";
 import path from "path";
 
+// Define payment interface to replace 'any'
+interface PaymentData {
+  name?: string;
+  amount?: number;
+  message?: string;
+  upiId?: string;
+  transactionId: string;
+  razorpayPaymentId?: string;
+  updatedAt?: Date;
+  to_user?: string;
+  contactNo?: string;
+}
+
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 export async function POST(req: Request) {
@@ -32,7 +45,7 @@ export async function POST(req: Request) {
     }
 
     let transactionId: string;
-    let payment: any;
+    let payment: PaymentData;
 
     // If we have paymentData from verify-payment, use it directly
     if (paymentData && paymentData.transactionId) {
@@ -63,7 +76,7 @@ export async function POST(req: Request) {
       const dbPayment = await Payment.findOne(
         { transactionId, done: true },
         'name amount message upiId transactionId razorpayPaymentId updatedAt to_user contactNo'
-      ).lean();
+      ).lean() as PaymentData | null;
 
       if (!dbPayment) {
         clearTimeout(timeoutId);
@@ -142,13 +155,13 @@ export async function POST(req: Request) {
     
     // Fire and forget error message
     const body = await req.json();
-if (body.From) {
-  twilioClient.messages.create({
-    from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
-    to: body.From,
-    body: 'An error occurred. Please try again later.',
-  }).catch(sendError => console.error('Error sending error message:', sendError));
-}
+    if (body.From) {
+      twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+        to: body.From,
+        body: 'An error occurred. Please try again later.',
+      }).catch(sendError => console.error('Error sending error message:', sendError));
+    }
     
     return NextResponse.json({ 
       success: false, 
@@ -159,7 +172,7 @@ if (body.From) {
 }
 
 // Optimized PDF generation function (same as your Express.js server)
-const generatePDFBuffer = (payment: any): Promise<Buffer> => {
+const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
