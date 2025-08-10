@@ -2,19 +2,42 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 import { v4 as uuidv4 } from "uuid";
-import { UserIcon, PhoneIcon, CurrencyRupeeIcon } from "@heroicons/react/24/outline"; // Icons for enhancement
+import { UserIcon, PhoneIcon, CurrencyRupeeIcon } from "@heroicons/react/24/outline";
 
-// Define an interface for Razorpay's response (based on their SDK docs)
+// Define an interface for Razorpay's response
 interface RazorpayResponse {
   razorpay_order_id: string;
   razorpay_payment_id: string;
   razorpay_signature: string;
 }
 
-// Extend the global Window interface to declare Razorpay (avoids 'as any' cast)
+// Define Razorpay options interface
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  handler: (response: RazorpayResponse) => void;
+  prefill: {
+    name: string;
+    contact: string;
+  };
+  theme: {
+    color: string;
+  };
+}
+
+// Define Razorpay interface
+interface Razorpay {
+  new (options: RazorpayOptions): { open: () => void };
+}
+
+// Extend the global Window interface
 declare global {
   interface Window {
-    Razorpay: any; // Use 'any' here only for the declaration; we'll type the usage below
+    Razorpay: Razorpay;
   }
 }
 
@@ -90,14 +113,14 @@ export default function Home() {
         return;
       }
 
-      const options = {
+      const options: RazorpayOptions = {
         key: "rzp_test_LauiieS7mt98Bs",
         amount: amountNum * 100,
         currency: "INR",
         name: "ISKCON Payment Portal",
         description: `Payment by ${formData.name}`,
         order_id: data.orderId,
-        handler: function (response: RazorpayResponse) { // Replaced 'any' with RazorpayResponse
+        handler: function (response: RazorpayResponse) {
           fetch("/api/verify-payment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -117,7 +140,7 @@ export default function Home() {
               }
             })
             .catch((err) => {
-              setError("Error verifying payment: " + (err as Error).message); // Cast to Error for safety
+              setError("Error verifying payment: " + (err as Error).message);
             });
         },
         prefill: {
@@ -127,10 +150,9 @@ export default function Home() {
         theme: { color: "#3399cc" },
       };
 
-      // No 'as any' needed due to global declaration; TypeScript now knows about window.Razorpay
       const razorpay = new window.Razorpay(options);
       razorpay.open();
-    } catch (err: unknown) { // Replaced 'any' with 'unknown' (safer; check if it's an Error)
+    } catch (err: unknown) {
       setError("Error initiating payment: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsLoading(false);
@@ -165,7 +187,7 @@ export default function Home() {
             <label htmlFor="contactNo" className="block text-sm font-medium text-gray-700 mb-1">
               Contact Number (e.g., +91xxxxxxxxxx)
             </label>
-            <PhoneIcon className="absolute left-3  top-10 h-5 w-5 text-gray-400" />
+            <PhoneIcon className="absolute left-3 top-10 h-5 w-5 text-gray-400" />
             <input
               type="tel"
               id="contactNo"
