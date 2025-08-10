@@ -98,7 +98,7 @@ Recipient: ${paymentData.recipient}
 Thank you for your donation to ISKCON!`;
 
       try {
-        console.log("Sending webhook to:", "https://iskconprojectbackend.onrender.com/api/whatsapp/verify");
+        console.log("Sending webhook to:", "https://backend-m133.onrender.com/api/whatsapp/verify");
         
         const webhookPayload = {
           message: message,
@@ -108,7 +108,7 @@ Thank you for your donation to ISKCON!`;
         
         console.log("Webhook payload:", JSON.stringify(webhookPayload, null, 2));
 
-        const webhookResponse = await fetch("https://iskconprojectbackend.onrender.com/api/whatsapp/verify", {
+        const webhookResponse = await fetch("https://backend-m133.onrender.com/api/whatsapp/verify", {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
@@ -161,7 +161,7 @@ Thank you for your donation to ISKCON!`;
           
           console.log("Simple webhook payload:", JSON.stringify(simplePayload, null, 2));
           
-          const fallbackResponse = await fetch("https://iskconprojectbackend.onrender.com/api/whatsapp/verify", {
+          const fallbackResponse = await fetch("https://backend-m133.onrender.com/api/whatsapp/verify", {
             method: "POST",
             headers: { 
               "Content-Type": "application/json",

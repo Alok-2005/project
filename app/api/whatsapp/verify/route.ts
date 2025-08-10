@@ -111,7 +111,7 @@ export async function POST(req: Request) {
 
     console.log("PDF Generated:", filePath);
 
-    const pdfUrl = `https://iskconprojectbackend.onrender.com/receipts/${fileName}`;
+    const pdfUrl = `https://backend-m133.onrender.com/receipts/${fileName}`;
     console.log("PDF URL:", pdfUrl);
 
     const twilioResponse = await twilioClient.messages.create({
