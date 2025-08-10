@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
 
+// Define the params type explicitly to match Next.js expectations
+interface RouteParams {
+  params: {
+    filename: string;
+  };
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { filename: string } }
-) {
+  // Use type assertion to ensure compatibility with Next.js internal types
+  context: RouteParams & { params: unknown }
+): Promise<NextResponse> {
   try {
-    const filename = params.filename;
+    // Safely access params.filename
+    const filename = (context.params as { filename: string }).filename;
     
     // Security check - only allow PDF files and prevent directory traversal
     if (!filename.endsWith('.pdf') || filename.includes('..')) {
@@ -20,16 +29,16 @@ export async function GET(
     const filePath = path.join('/tmp', 'receipts', filename);
     
     try {
-  const fileBuffer = await fs.readFile(filePath);
-  const arrayBuffer = Buffer.from(fileBuffer).buffer;
-  return new NextResponse(arrayBuffer, {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="${filename}"`,
-      'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
-    },
-  });
+      const fileBuffer = await fs.readFile(filePath);
+      // Use Buffer directly with type assertion to satisfy TypeScript
+      return new NextResponse(fileBuffer as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `inline; filename="${filename}"`,
+          'Cache-Control': 'public, max-age=3600', // Cache for 1 hour
+        },
+      });
     } catch (fileError) {
       console.error('File not found:', filePath, fileError);
       return NextResponse.json(
