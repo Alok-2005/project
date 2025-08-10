@@ -36,7 +36,8 @@ export async function POST(req: Request) {
     console.error('⏰ Request timed out after 12 seconds');
   }, 12000);
 
-  let body: TwilioRequestBody;
+  // Initialize body with a default empty object to avoid "used before assigned" error
+  let body: TwilioRequestBody = {};
   
   try {
     await connectDb();
@@ -236,7 +237,7 @@ export async function POST(req: Request) {
     console.error('❌ Error in Twilio callback:', error);
     
     // Fire and forget error message using already-parsed body
-    if (body?.From) {
+    if (body.From) { // Safe to access since body is initialized
       console.log('📱 Sending error message to:', body.From);
       twilioClient.messages.create({
         from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
@@ -288,7 +289,6 @@ const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => {
       doc.fontSize(18).text('ISKCON Payment Receipt', { align: 'center' });
       doc.moveDown(0.5);
       
-      // FIXED: Remove the syntax error "vr" and use proper array syntax
       const receiptData = [
         `Name: ${payment.name || 'Unknown'}`,
         `Amount: ₹${payment.amount || 0}`,
