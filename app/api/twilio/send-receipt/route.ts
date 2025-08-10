@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     }
 
     let transactionId: string;
-    let payment: PaymentData;
+    let payment: PaymentData; // Replaced 'any' with 'PaymentData'
 
     // If we have paymentData from verify-payment, use it directly
     if (paymentData && paymentData.transactionId) {
@@ -172,7 +172,7 @@ export async function POST(req: Request) {
 }
 
 // Optimized PDF generation function (same as your Express.js server)
-const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => {
+const generatePDFBuffer = (payment: PaymentData): Promise<Buffer> => { // Replaced 'any' with 'PaymentData'
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
